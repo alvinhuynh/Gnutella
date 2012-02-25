@@ -3,6 +3,11 @@
 
 import socket
 import sys
+import os
+
+from twisted.internet import reactor, protocol, stdio 
+from twisted.protocols import basic
+#from twisted.web import client
 
 """
 GLOBAL DATA
@@ -14,36 +19,46 @@ directory = None
 IP = None
 port = 0
 
-"""
-RECEIVE FUNCTIONS
-"""
-def decode_message():
-  pass
-
 
 """
-SEND FUNCTIONS
+TWISTED CLASSES
 """
-def send_ping():
+class GnutellaProtocol(basic.LineReceiver):
   pass
 
-def send_pong():
-  pass
+class GnutellaFactory(protocol.ServerFactory):
+  protocol = GnutellaProtocol
 
-def send_query():
-  pass
 
-def send_query_hit():
-  pass
 
-def push_file():
-  pass
 
-def request_conn():
-  pass
+class DataForwardingProtocol(protocol.Protocol):
+  def __init__(self):
+    self.output = None
+    self.normalizeNewlines = False
 
-def setup_conn():
-  pass
+class StdioProxyProtocol(DataForwardingProtocol):
+  def connectionMade(self):
+      inputForwarder = DataForwardingProtocol()
+      inputForwarder.output = self.transport
+      inputForwarder.normalizeNewlines = True
+      stdioWrapper = stdio.StandardIO(inputForwarder)
+      self.output = stdioWrapper
+      all_server.append(self)
+      logFile.write("Connected to {0}:{1}\n".format(self.transport.host, self.transport.port))
+
+class StdioProxyFactory(protocol.ReconnectingClientFactory):
+  protocol = StdioProxyProtocol
+
+  def clientConnectionLost(self, transport, reason):
+    logFile.write("P2P servent has lost connection with %s\n" % transport.port)
+    #reactor.stop()
+
+  def clientConnectionFailed(self, transport, reason):
+    logFile.write("Reconnecting with node ______\n")
+    print "port I connected TO: %s" % transport.port
+    protocol.ReconnectingClientFactory.clientConnectionFailed(self, transport, reason)
+
 
 """
 MAIN FUNCTION
@@ -57,23 +72,35 @@ def main():
   global directory
   global IP
   global port
+  targetIP = None
+  targetPort = None
   for arg in args:
     if(arg == "-i"):
       hasIP = True
     elif(arg == "-p"):
       hasPort = True
     elif(hasIP):
-      IP = arg
+      targetIP = arg
       hasIP = False
     elif(hasPort):
-      port = int(arg)
+      targetPort = int(arg)
       hasPort = False
     else:
       directory = arg
 
   print "directory: {0}".format(directory)
-  print "IP: {0}". format(IP)
-  print "Port: {0}". format(port)
+
+  #Set up Twisted client and log file
+  logFile = open("output.log", "w")
+  if(targetIP and targetPort):
+    reactor.connectTCP(targetIP, targetPort, StdioProxyFactory())
+  usedPort = reactor.listenTCP(port, GnutellaFactory())
+  host = usedPort.getHost()
+  IP = host.host
+  port = host.port
+  print "IP address: {0}:{1}".format(host.host, host.port)
+  reactor.run()
+  logFile.close()
 
 
 if __name__=="__main__":
