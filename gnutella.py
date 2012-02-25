@@ -24,7 +24,9 @@ port = 0
 TWISTED CLASSES
 """
 class GnutellaProtocol(basic.LineReceiver):
-  pass
+  def lineReceived(self, line):
+    print "Line received: {0}".format(line)
+
 
 class GnutellaFactory(protocol.ServerFactory):
   protocol = GnutellaProtocol
@@ -37,26 +39,30 @@ class DataForwardingProtocol(protocol.Protocol):
     self.output = None
     self.normalizeNewlines = False
 
+
 class StdioProxyProtocol(DataForwardingProtocol):
   def connectionMade(self):
-      inputForwarder = DataForwardingProtocol()
-      inputForwarder.output = self.transport
-      inputForwarder.normalizeNewlines = True
-      stdioWrapper = stdio.StandardIO(inputForwarder)
-      self.output = stdioWrapper
-      all_server.append(self)
-      logFile.write("Connected to {0}:{1}\n".format(self.transport.host, self.transport.port))
+    print "Connected to someone\n"
+    inputForwarder = DataForwardingProtocol()
+    inputForwarder.output = self.transport
+    inputForwarder.normalizeNewlines = True
+    stdioWrapper = stdio.StandardIO(inputForwarder)
+    self.output = stdioWrapper
+    #all_server.append(self)
+    #logFile.write("Connected to {0}:{1}\n".format(self.transport.host, self.transport.port))
+
 
 class StdioProxyFactory(protocol.ReconnectingClientFactory):
   protocol = StdioProxyProtocol
 
   def clientConnectionLost(self, transport, reason):
     logFile.write("P2P servent has lost connection with %s\n" % transport.port)
+    print "Lost connection with {0}:{1}" % (transport.host, transport.port)
     #reactor.stop()
 
   def clientConnectionFailed(self, transport, reason):
     logFile.write("Reconnecting with node ______\n")
-    print "port I connected TO: %s" % transport.port
+    print "Trying to connect to: %s:%s" % (transport.host, transport.port)
     protocol.ReconnectingClientFactory.clientConnectionFailed(self, transport, reason)
 
 
@@ -91,8 +97,10 @@ def main():
   print "directory: {0}".format(directory)
 
   #Set up Twisted client and log file
+  global logFile 
   logFile = open("output.log", "w")
   if(targetIP and targetPort):
+    print "Attempting connect: {0}:{1}".format(targetIP, targetPort)
     reactor.connectTCP(targetIP, targetPort, StdioProxyFactory())
   usedPort = reactor.listenTCP(port, GnutellaFactory())
   host = usedPort.getHost()
