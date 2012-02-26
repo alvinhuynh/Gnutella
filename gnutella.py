@@ -42,27 +42,30 @@ class DataForwardingProtocol(protocol.Protocol):
 
 class StdioProxyProtocol(DataForwardingProtocol):
   def connectionMade(self):
-    print "Connected to someone\n"
     inputForwarder = DataForwardingProtocol()
     inputForwarder.output = self.transport
     inputForwarder.normalizeNewlines = True
     stdioWrapper = stdio.StandardIO(inputForwarder)
     self.output = stdioWrapper
+    peer = self.transport.getPeer()
+    print "Connected to {0}:{1}".format(peer.host, peer.port)
     #all_server.append(self)
-    #logFile.write("Connected to {0}:{1}\n".format(self.transport.host, self.transport.port))
 
 
 class StdioProxyFactory(protocol.ReconnectingClientFactory):
   protocol = StdioProxyProtocol
 
+  def startedConnecting(self, connector):
+    self.host = connector.host
+    self.port = connector.port
+    print "Trying to connect to {0}:{1}".format(self.host, self.port)
+
   def clientConnectionLost(self, transport, reason):
-    logFile.write("P2P servent has lost connection with %s\n" % transport.port)
-    print "Lost connection with {0}:{1}" % (transport.host, transport.port)
     #reactor.stop()
+    print "Disconnected with {0}:{1}".format(self.host, self.port)
 
   def clientConnectionFailed(self, transport, reason):
-    logFile.write("Reconnecting with node ______\n")
-    print "Trying to connect to: %s:%s" % (transport.host, transport.port)
+    print "Trying to connect to %s:%s" % (transport.host, transport.port)
     protocol.ReconnectingClientFactory.clientConnectionFailed(self, transport, reason)
 
 
@@ -100,7 +103,6 @@ def main():
   global logFile 
   logFile = open("output.log", "w")
   if(targetIP and targetPort):
-    print "Attempting connect: {0}:{1}".format(targetIP, targetPort)
     reactor.connectTCP(targetIP, targetPort, StdioProxyFactory())
   usedPort = reactor.listenTCP(port, GnutellaFactory())
   host = usedPort.getHost()
