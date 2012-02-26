@@ -18,43 +18,63 @@ data = []
 directory = None
 IP = None
 port = 0
+initiating = True
 
 
 """
 TWISTED CLASSES
 """
 class GnutellaProtocol(basic.LineReceiver):
-  def lineReceived(self, line):
-    print "Line received: {0}".format(line)
-
-
-class GnutellaFactory(protocol.ServerFactory):
-  protocol = GnutellaProtocol
-
-
-
-
-class DataForwardingProtocol(protocol.Protocol):
   def __init__(self):
     self.output = None
-    self.normalizeNewlines = False
+    self.normalizeNewlines = True
+    self.initiator = False
+    self.verified = True
 
+  def setInitiator(self):
+    self.initiator = True
+    self.verified = False
 
-class StdioProxyProtocol(DataForwardingProtocol):
   def connectionMade(self):
-    inputForwarder = DataForwardingProtocol()
-    inputForwarder.output = self.transport
-    inputForwarder.normalizeNewlines = True
-    stdioWrapper = stdio.StandardIO(inputForwarder)
-    self.output = stdioWrapper
+    #inputForwarder = DataForwardingProtocol()
+    #inputForwarder.output = self.transport
+    #inputForwarder.normalizeNewlines = True
+    #stdioWrapper = stdio.StandardIO(inputForwarder)
+    #self.output = stdioWrapper
     peer = self.transport.getPeer()
     print "Connected to {0}:{1}".format(peer.host, peer.port)
+    if self.initiator:
+      self.sendLine("GNUTELLA CONNECT/0.4\n\n")
     #all_server.append(self)
 
+  def dataReceived(self, data):
+    print "Data received: {0}".format(data)
+    peer = self.transport.getPeer()
+    if(data.startswith("GNUTELLA CONNECT")):
+      self.sendLine("GNUTELLA OK\n\n")
+    elif (self.initiator and not self.verified):
+      if(data.startswith("GNUTELLA OK")):
+        print "Connection with {0}:{1} verified".format(peer.host, peer.port)
+        self.verified = True
+      else:
+        print "Connection with {0}:{1} rejected".format(peer.host, peer.port)
+        self.transport.loseConnection()
 
-class StdioProxyFactory(protocol.ReconnectingClientFactory):
-  protocol = StdioProxyProtocol
 
+class GnutellaFactory(protocol.ReconnectingClientFactory):
+  #protocol = GnutellaProtocol
+
+  def __init__(self, isInitiator=False):
+    self.initiator = False
+    if isInitiator:
+      self.initiator = True
+
+  def buildProtocol(self, addr):
+    prot = GnutellaProtocol()
+    if self.initiator:
+      prot.setInitiator()
+    return prot
+ 
   def startedConnecting(self, connector):
     self.host = connector.host
     self.port = connector.port
@@ -69,18 +89,16 @@ class StdioProxyFactory(protocol.ReconnectingClientFactory):
     protocol.ReconnectingClientFactory.clientConnectionFailed(self, transport, reason)
 
 
+
 """
 MAIN FUNCTION
 """
-def main():
+if __name__=="__main__":
   args = sys.argv[1:]
   hasIP = False
   hasPort = False
   #must redeclare variables as globals within function
   #otherwise, python recreates a local variable 
-  global directory
-  global IP
-  global port
   targetIP = None
   targetPort = None
   for arg in args:
@@ -100,10 +118,9 @@ def main():
   print "directory: {0}".format(directory)
 
   #Set up Twisted client and log file
-  global logFile 
   logFile = open("output.log", "w")
   if(targetIP and targetPort):
-    reactor.connectTCP(targetIP, targetPort, StdioProxyFactory())
+    reactor.connectTCP(targetIP, targetPort, GnutellaFactory(initiating))
   usedPort = reactor.listenTCP(port, GnutellaFactory())
   host = usedPort.getHost()
   IP = host.host
@@ -111,7 +128,3 @@ def main():
   print "IP address: {0}:{1}".format(host.host, host.port)
   reactor.run()
   logFile.close()
-
-
-if __name__=="__main__":
-  main()
