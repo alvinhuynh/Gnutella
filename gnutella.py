@@ -7,6 +7,7 @@ import os
 import re
 
 from uuid import getnode as getmac
+from urllib2 import urlopen
 
 from twisted.internet import reactor, protocol, stdio 
 from twisted.protocols import basic
@@ -209,9 +210,20 @@ class GnutellaProtocol(basic.LineReceiver):
       ip = info[1]
       query = info[2]
       print "Found port, ip, file: ", info
-      #TODO: GET REQUEST FOR FILE AND SAVE
+      global directory
+      filepath = os.path.join(directory, query) 
+      if not os.path.isfile(filepath):
+        printLine("Getting file \"{0}\" from {1}:{2}".format(query, ip, port)) 
+        reactor.callInThread(self.getFile, port, ip, query, filepath)
     else:
       self.sendQueryHit(msgid, payload=payload)
+
+  def getFile(self, port, ip, query, filepath):
+    request = os.path.join(port, query)
+    url = "http://{0}:{1}".format(ip, request)
+    fp = open(filepath, "w")
+    fp.write(urlopen(url).read())
+    fp.close()
 
 
 class GnutellaFactory(protocol.ReconnectingClientFactory):
