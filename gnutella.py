@@ -5,6 +5,7 @@ import socket
 import sys
 import os
 import re
+import random
 
 from uuid import getnode as getmac
 from urllib2 import urlopen
@@ -29,10 +30,14 @@ IP = None
 port = 0
 serverPort = None
 initiating = True
-MAX_CONNS = 3
 msgID = 0
 msgRoutes = {}
 netData = []
+
+MIN_CONNS = 3
+MAX_CONNS = 10
+UNDER_PROB = 50
+OVER_PROB = 10
 
 """
 GNUTELLA TWISTED CLASSES
@@ -58,26 +63,69 @@ class GnutellaProtocol(basic.LineReceiver):
     peer = self.transport.getPeer()
     writeLog("Connected to {0}:{1}\n".format(peer.host, peer.port))
     if self.initiator:
-      self.sendLine("GNUTELLA CONNECT/0.4\n\n")
+      self.transport.write("GNUTELLA CONNECT/0.4\n\n;")
       writeLog("Sending GNUTELLA CONNECT to {0}:{1}\n".format(peer.host, peer.port))
     host = self.transport.getHost()
     global IP
     IP = host.host
 
+  def makePeerConnection(self, IP=None, port=None):
+    global MAX_CONNS
+    global netData
+    global connections
+    self.cleanPeerList()
+    numConns = len(connections)
+    if (numConns < MAX_CONNS and len(netData) > 0):
+      if self.shouldConnect(numConns):
+        randNode = netData[random.randint(0, len(netData)-1)]
+        if (not IP and not port):
+          IP = randNode[1] 
+          port = randNode[0]
+          netData.remove(randNode)
+        reactor.connectTCP(IP, port, GnutellaFactory(True))
+
+  def shouldConnect(self, numConns):
+    global MIN_CONNS
+    global UNDER_PROB
+    global OVER_PROB
+    prob = random.randint(0, 99)
+    if (numConns < MIN_CONNS):
+      if (prob < UNDER_PROB):
+        return True
+    elif (prob < OVER_PROB):
+        return True
+    return False
+
+  def cleanPeerList(self):
+    global netData
+    global connections
+    for conn in connections:
+      peer = conn.transport.getPeer()
+      peer_info = (peer.port, peer.host)
+      if peer_info in netData:
+        netData.remove(peer_info)
+
   def connectionLost(self, reason):
     connections.remove(self)
     peer = self.transport.getPeer()
     writeLog("Disconnected with {0}:{1}--{2}\n".format(peer.host, peer.port, reason))
+    self.makePeerConnection()
 
   def dataReceived(self, data):
+    lines = data.split(";")
+    for line in lines:
+      if (len(line) > 0):
+        self.handleMessage(line)
+
+  def handleMessage(self, data):
     peer = self.transport.getPeer()
     if(data.startswith("GNUTELLA CONNECT")):
       writeLog("Received GNUTELLA CONNECT from {0}:{1}\n".format(peer.host, peer.port))
       if(len(connections) <= MAX_CONNS):
-        self.sendLine("GNUTELLA OK\n\n")
+        self.transport.write("GNUTELLA OK\n\n;")
         writeLog("Sending GNUTELLA OK to {0}:{1}\n".format(peer.host, peer.port))
       else:
-        self.sendLine("WE'RE OUT OF NUTELLA\n")
+        self.transport.write("WE'RE OUT OF NUTELLA\n;")
         writeLog("Sending WE'RE OUT OF NUTELLA to {0}:{1}\n".format(peer.host, peer.peer))
     elif (self.initiator and not self.verified):
       if(data.startswith("GNUTELLA OK")):
@@ -88,7 +136,8 @@ class GnutellaProtocol(basic.LineReceiver):
         writeLog("Connection with {0}:{1} rejected\n".format(peer.host, peer.port))
         reactor.stop()
     else:
-      writeLog("\nIncoming message: {0}\n".format(data))
+      #writeLog("\nIncoming message: {0}\n".format(data))
+      writeLog("\n")
       message = data.split('&', 3)
       msgid = message[0]
       pldescrip = int(message[1])
@@ -124,6 +173,7 @@ class GnutellaProtocol(basic.LineReceiver):
     else:
       message = self.buildHeader("00", ttl)
       writeLog("Sending PING: {0}\n".format(message))
+    message = "{0};".format(message)
     for cn in connections:
       if(msgid == None or cn != self):
         cn.transport.write(message)
@@ -135,10 +185,11 @@ class GnutellaProtocol(basic.LineReceiver):
     IP = self.transport.getHost().host
     header = "{0}&{1}&{2}&".format(msgid, "01", 7)
     if payload:
-      message = "{0}{1}".format(header, payload)
+      message = "{0}{1};".format(header, payload)
       writeLog("Forwarding PONG: {0}\n".format(message))
     else: 
-      message = "{0}{1}&{2}&{3}&{4}".format(header, port, IP, nfiles, nkb)
+      #message = "{0}{1}&{2}&{3}&{4};".format(header, port, IP, nfiles, nkb)
+      message = "{0}{1}&{2};".format(header, port, IP)
       writeLog("Sending PONG: {0}\n".format(message))
     global msgRoutes
     msgRoutes[msgid].transport.write(message)
@@ -153,14 +204,17 @@ class GnutellaProtocol(basic.LineReceiver):
     self.sendPing(msgid, ttl-1)
 
   def handlePong(self, msgid, payload):
-    #store data
     global nodeID
+    global netData
+    info = payload.split("&")
+    node_data = (int(info[0]), info[1])
+    if info not in netData:
+      netData.append(node_data)
     if(msgid.startswith(nodeID)):
-      #TODO: store info, make new conn if necessary
-      global netData
-      netData.append(payload.split('&'))
+      self.makePeerConnection(node_data[1], node_data[0])
     else:
       self.sendPong(msgid, payload)
+      self.makePeerConnection()
 
   def sendQuery(self, query, msgid=None, ttl=7):
     if(ttl <= 0):
@@ -169,7 +223,7 @@ class GnutellaProtocol(basic.LineReceiver):
       header = "{0}&80&{1}&".format(msgid, ttl)
     else:
       header = self.buildHeader(80, ttl)
-    message = "{0}{1}".format(header, query)
+    message = "{0}{1};".format(header, query)
     global connections
     for cn in connections:
       if(msgid == None or cn != self):
@@ -181,11 +235,11 @@ class GnutellaProtocol(basic.LineReceiver):
     if msgid not in msgRoutes.keys():
       return
     if payload:
-      message = "{0}{1}".format(header, payload)
+      message = "{0}{1};".format(header, payload)
     else:
       global IP
       global serverPort
-      message = "{0}{1}&{2}&{3}".format(header, serverPort, IP, query)
+      message = "{0}{1}&{2}&{3};".format(header, serverPort, IP, query)
     msgRoutes[msgid].transport.write(message)
 
   def handleQuery(self, msgid, ttl, query):
