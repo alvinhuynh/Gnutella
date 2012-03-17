@@ -6,6 +6,7 @@ import sys
 import os
 import re
 import random
+import time
 
 from uuid import getnode as getmac
 from urllib2 import urlopen
@@ -32,6 +33,7 @@ serverPort = None
 initiating = True
 msgID = 0
 msgRoutes = {}
+msgTimeout = 3.0
 netData = []
 
 MIN_CONNS = 3
@@ -158,9 +160,9 @@ class GnutellaProtocol(basic.LineReceiver):
 
   def buildHeader(self, descrip, ttl):
     global msgID
-    header = "{0}{1:02}".format(nodeID, msgID)
+    header = "{0}{1:03}".format(nodeID, msgID)
     msgID += 1
-    if(msgID > 99):
+    if(msgID > 999):
       msgID = 0
     return "{0}&{1}&{2}&".format(header, descrip, ttl) 
 
@@ -192,14 +194,14 @@ class GnutellaProtocol(basic.LineReceiver):
       message = "{0}{1}&{2};".format(header, port, IP)
       writeLog("Sending PONG: {0}\n".format(message))
     global msgRoutes
-    msgRoutes[msgid].transport.write(message)
+    msgRoutes[msgid][0].transport.write(message)
 
   def handlePing(self, msgid, ttl):
     #send pong, store data, forward ping
-    global msgRoutes
-    if msgid in msgRoutes.keys():
+    if isValid(msgid):
       return
-    msgRoutes[msgid] = self
+    global msgRoutes
+    msgRoutes[msgid] = (self, time.time())
     self.sendPong(msgid)
     self.sendPing(msgid, ttl-1)
 
@@ -232,7 +234,7 @@ class GnutellaProtocol(basic.LineReceiver):
   def sendQueryHit(self, msgid, query=None, payload=None):
     header = "{0}&81&7&".format(msgid)
     global msgRoutes
-    if msgid not in msgRoutes.keys():
+    if not isValid(msgid):
       return
     if payload:
       message = "{0}{1};".format(header, payload)
@@ -240,13 +242,13 @@ class GnutellaProtocol(basic.LineReceiver):
       global IP
       global serverPort
       message = "{0}{1}&{2}&{3};".format(header, serverPort, IP, query)
-    msgRoutes[msgid].transport.write(message)
+    msgRoutes[msgid][0].transport.write(message)
 
   def handleQuery(self, msgid, ttl, query):
     global msgRoutes
-    if msgid in msgRoutes.keys():
+    if isValid(msgid):
       return
-    msgRoutes[msgid] = self
+    msgRoutes[msgid] = (self, time.time())
     global directory
     filepath = os.path.join(directory, query)
     if os.path.isfile(filepath):
@@ -335,6 +337,16 @@ def writeLog(line):
 def printLine(line):
   print line
   writeLog("{0}\n".format(line))
+
+def isValid(msgid):
+  global msgRoutes
+  global msgTimeout
+  now = time.time()
+  if msgid in msgRoutes.keys() and now - msgRoutes[msgid][1] < msgTimeout:
+    msgRoutes[msgid][1] = now
+    return True
+  return False
+
 
 """
 MAIN FUNCTION
