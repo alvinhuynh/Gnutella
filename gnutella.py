@@ -110,7 +110,7 @@ class GnutellaProtocol(basic.LineReceiver):
   def connectionLost(self, reason):
     connections.remove(self)
     peer = self.transport.getPeer()
-    writeLog("Disconnected with {0}:{1}--{2}\n".format(peer.host, peer.port, reason))
+    writeLog("Disconnected with {0}:{1}\n".format(peer.host, peer.port))
     self.makePeerConnection()
 
   def dataReceived(self, data):
@@ -343,7 +343,7 @@ def isValid(msgid):
   global msgTimeout
   now = time.time()
   if msgid in msgRoutes.keys() and now - msgRoutes[msgid][1] < msgTimeout:
-    msgRoutes[msgid][1] = now
+    msgRoutes[msgid] = (msgRoutes[msgid][0], now)
     return True
   return False
 
