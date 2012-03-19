@@ -250,6 +250,9 @@ class GnutellaProtocol(basic.LineReceiver):
       return
     msgRoutes[msgid] = (self, time.time())
     global directory
+    if "../" in query:
+      print "Cannot request files in upper directories"
+      return
     filepath = os.path.join(directory, query)
     if os.path.isfile(filepath):
       self.sendQueryHit(msgid, query=query)
