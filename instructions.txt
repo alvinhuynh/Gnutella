@@ -1,0 +1,19 @@
+General way to run client (will act as first node in network):
+   python gnutella.py [directory]
+where [directory] is the directory that will act is the node's directory.
+Files in the [directory]/files folder will be shared on the network.
+A [directory]/output.log file will be created to log interactions the node makes.
+If files and directories do not already exist, program will generate them
+
+
+To connect to another node in an existing network on start up:
+    python gnutella.py [directory] -i [ip] -p [port#]
+
+
+To watch the log file while the node is running, run in another terminal:
+    tail -c +0 -f [output.log path]
+
+
+To request a file, after the node is running, enter:
+    GET [filename];
+Downloaded files will be saved to the [directory]/files folder.
